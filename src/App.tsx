@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header, ActiveTab } from './components/Header';
 import { DashboardKPIs } from './components/DashboardKPIs';
 import { VehicleList } from './components/VehicleList';
@@ -16,9 +16,13 @@ import { useVehicleStore } from './stores/vehicleStore';
 import { TaxType, Vehicle } from './types/vehicle';
 
 export const App: React.FC = () => {
-  const { vehicles } = useVehicleStore();
+  const { vehicles, loadFleetFromApi } = useVehicleStore();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('fleet');
+
+  useEffect(() => {
+    loadFleetFromApi();
+  }, [loadFleetFromApi]);
 
   // Modals state
   const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
@@ -74,6 +78,7 @@ export const App: React.FC = () => {
             onSelectVehicle={handleSelectVehicle}
             onOpenRecordPayment={handleOpenRecordPayment}
             onOpenVahanAssistant={handleOpenVahanAssistant}
+            onOpenAddVehicle={() => setIsAddVehicleOpen(true)}
           />
         )}
 

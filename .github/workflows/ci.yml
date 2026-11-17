@@ -1,4 +1,4 @@
-name: NIKAVE CI Pipeline
+name: NIKAVE CI & Deployment Pipeline
 
 on:
   push:
@@ -27,3 +27,23 @@ jobs:
       - name: TypeScript Typecheck & Build
         run: npm run build
 
+  deploy-to-vercel:
+    name: Automated Vercel Production Deployment
+    needs: validate-and-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Vercel Production Deployment
+        run: |
+          echo "🚀 Triggering automated production deployment on Vercel..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.vercel.com/v1/integrations/deploy/prj_mDZBN9AcST3sdd0XRFUf6vxkj4eu/xIgr92NSGA")
+          echo "$RESPONSE"
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+            echo "✅ Vercel production deployment triggered successfully."
+            echo "🌐 Live Production URL: https://nikave-transport-solutions.vercel.app"
+          else
+            echo "⚠️ Deployment webhook returned HTTP $HTTP_STATUS (Vercel native Git integration will also deploy on push)."
+          fi

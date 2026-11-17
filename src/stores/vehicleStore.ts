@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { SAMPLE_VEHICLES, INITIAL_MANAGER_CONFIG, INITIAL_TAX_THRESHOLDS } from '../data/sampleVehicles';
+import { INITIAL_MANAGER_CONFIG, INITIAL_TAX_THRESHOLDS } from '../data/sampleVehicles';
 import { 
   TaxPaymentLog, 
   TransportManagerConfig, 
@@ -30,6 +30,7 @@ interface VehicleStore {
   taxThresholds: TaxThresholdConfig[];
   auditLogs: AuditLog[];
   notificationLogs: NotificationLog[];
+  isLoading: boolean;
   
   selectedVehicleId: string | null;
   searchQuery: string;
@@ -41,6 +42,9 @@ interface VehicleStore {
   setSearchQuery: (q: string) => void;
   setStatusFilter: (status: 'all' | ComplianceStatus) => void;
   setTaxFilter: (tax: 'all' | TaxType) => void;
+
+  // Cloud & Local Sync
+  loadFleetFromApi: () => Promise<void>;
 
   // Transactional Data Mutations (with Automatic Audit Logging)
   addVehicle: (vehicleData: Partial<Vehicle>) => Vehicle;
@@ -64,14 +68,14 @@ interface VehicleStore {
   updateTaxThreshold: (taxCode: TaxType, updates: Partial<TaxThresholdConfig>) => void;
   logNotification: (log: Omit<NotificationLog, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateManagerConfig: (updates: Partial<TransportManagerConfig>) => void;
-  resetToSampleFleet: () => void;
+  clearAllData: () => void;
 }
 
-const STORAGE_KEY_VEHICLES = 'nikave_vehicles_v2';
-const STORAGE_KEY_CONFIG = 'nikave_manager_config_v2';
+const STORAGE_KEY_VEHICLES = 'nikave_fleet_live_v1';
+const STORAGE_KEY_CONFIG = 'nikave_manager_live_v1';
 const STORAGE_KEY_THRESHOLDS = 'nikave_tax_thresholds_v2';
-const STORAGE_KEY_AUDIT = 'nikave_audit_logs_v2';
-const STORAGE_KEY_NOTIFS = 'nikave_notification_logs_v2';
+const STORAGE_KEY_AUDIT = 'nikave_audit_live_v1';
+const STORAGE_KEY_NOTIFS = 'nikave_notifs_live_v1';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -79,7 +83,7 @@ function loadFromStorage<T>(key: string, fallback: T): T {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(fallback)) {
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed as T;
+        if (Array.isArray(parsed)) return parsed as T;
       } else if (parsed && typeof parsed === 'object') {
         return { ...fallback, ...parsed } as T;
       }
@@ -91,27 +95,12 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 export const useVehicleStore = create<VehicleStore>((set, get) => ({
-  vehicles: loadFromStorage<Vehicle[]>(STORAGE_KEY_VEHICLES, SAMPLE_VEHICLES),
+  vehicles: loadFromStorage<Vehicle[]>(STORAGE_KEY_VEHICLES, []),
   managerConfig: loadFromStorage<TransportManagerConfig>(STORAGE_KEY_CONFIG, INITIAL_MANAGER_CONFIG),
   taxThresholds: loadFromStorage<TaxThresholdConfig[]>(STORAGE_KEY_THRESHOLDS, INITIAL_TAX_THRESHOLDS),
-  auditLogs: loadFromStorage<AuditLog[]>(STORAGE_KEY_AUDIT, [
-    {
-      id: 'f1a2b3c4-0001-4000-8000-000000000001',
-      entityName: 'vehicles',
-      entityId: 'e5d9a101-1111-4000-8000-000000000001',
-      action: 'INSERT',
-      previousValue: null,
-      newValue: {
-        registrationNumber: 'TN-01-AX-4825',
-        makeModel: 'Tata Signa 4825.TK',
-        ownerName: 'NIKAVE Logistics Solutions Pvt Ltd',
-      },
-      performedBy: 'system_seed',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-  ]),
+  auditLogs: loadFromStorage<AuditLog[]>(STORAGE_KEY_AUDIT, []),
   notificationLogs: loadFromStorage<NotificationLog[]>(STORAGE_KEY_NOTIFS, []),
+  isLoading: false,
 
   selectedVehicleId: null,
   searchQuery: '',
@@ -122,6 +111,24 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setStatusFilter: (statusFilter) => set({ statusFilter }),
   setTaxFilter: (taxFilter) => set({ taxFilter }),
+
+  loadFleetFromApi: async () => {
+    try {
+      set({ isLoading: true });
+      const res = await fetch('/api/vehicles');
+      if (res.ok) {
+        const body = await res.json();
+        if (body.status === 'success' && Array.isArray(body.data)) {
+          set({ vehicles: body.data });
+          localStorage.setItem(STORAGE_KEY_VEHICLES, JSON.stringify(body.data));
+        }
+      }
+    } catch {
+      // Offline fallback: keep localStorage data
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 
   // Transactional Add Vehicle + Audit Log
   addVehicle: (vehicleData) => {
@@ -152,10 +159,10 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       state: vehicleData.state || 'Tamil Nadu',
       rtoCode: vehicleData.rtoCode || 'TN-01',
       
-      ownerName: vehicleData.ownerName || 'NIKAVE Transport Solutions',
+      ownerName: vehicleData.ownerName || 'Transport Manager',
       ownerFatherOrRepName: vehicleData.ownerFatherOrRepName || '',
-      ownerPhone: vehicleData.ownerPhone || get().managerConfig.managerPhone,
-      ownerEmail: vehicleData.ownerEmail || get().managerConfig.managerEmail,
+      ownerPhone: vehicleData.ownerPhone || get().managerConfig.managerPhone || '',
+      ownerEmail: vehicleData.ownerEmail || get().managerConfig.managerEmail || '',
       ownerAddress: vehicleData.ownerAddress || '',
       ownerPanOrGst: vehicleData.ownerPanOrGst || '',
 
@@ -200,7 +207,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       action: 'INSERT',
       previousValue: null,
       newValue: newVehicle as unknown as Record<string, unknown>,
-      performedBy: get().managerConfig.managerName,
+      performedBy: get().managerConfig.managerName || 'manager',
       createdAt: now,
       updatedAt: now,
     };
@@ -211,6 +218,13 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     set({ vehicles: updatedVehicles, auditLogs: updatedAudit });
     localStorage.setItem(STORAGE_KEY_VEHICLES, JSON.stringify(updatedVehicles));
     localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(updatedAudit));
+
+    // Async sync with PostgreSQL
+    fetch('/api/vehicles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newVehicle),
+    }).catch(() => {});
 
     return newVehicle;
   },
@@ -230,7 +244,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     const updatedVehicle: Vehicle = {
       ...prevVehicle,
       ...updates,
-      chassisLast5: updates.chassisLast5 || chassisL5,
+      chassisLast5: chassisL5,
       updatedAt: now,
     };
 
@@ -241,7 +255,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       action: 'UPDATE',
       previousValue: prevVehicle as unknown as Record<string, unknown>,
       newValue: updatedVehicle as unknown as Record<string, unknown>,
-      performedBy: get().managerConfig.managerName,
+      performedBy: get().managerConfig.managerName || 'manager',
       createdAt: now,
       updatedAt: now,
     };
@@ -267,7 +281,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       action: 'DELETE',
       previousValue: prevVehicle as unknown as Record<string, unknown>,
       newValue: null,
-      performedBy: get().managerConfig.managerName,
+      performedBy: get().managerConfig.managerName || 'manager',
       createdAt: now,
       updatedAt: now,
     };
@@ -282,6 +296,9 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     });
     localStorage.setItem(STORAGE_KEY_VEHICLES, JSON.stringify(updatedVehicles));
     localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(updatedAudit));
+
+    // Async sync with PostgreSQL
+    fetch(`/api/vehicles?id=${id}`, { method: 'DELETE' }).catch(() => {});
   },
 
   // Transactional Record Payment + Compliance Advance + Financial Ledger + Audit Log
@@ -309,49 +326,41 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       updatedAt: now,
     };
 
-    const prevTax = vehicle.taxes[payment.taxType];
-    const updatedTax = {
-      ...prevTax,
-      enabled: true,
+    // Advance compliance record
+    const prevTaxInfo = vehicle.taxes[payment.taxType];
+    const updatedTaxInfo = {
+      ...(prevTaxInfo || { enabled: true }),
       lastPaidDate: payment.paidDate,
       expiryDate: payment.periodTo,
       lastPaidAmount: payment.amount,
       receiptNumber: payment.receiptChallanNo,
-      paymentMode: payment.paymentMode,
-      gracePeriodDays: prevTax?.gracePeriodDays ?? STATUTORY_GRACE_PERIODS[payment.taxType],
       status: 'valid' as ComplianceStatus,
+      daysUntilExpiry: 90,
+      estimatedPenaltyAmount: 0,
     };
 
     const updatedVehicle: Vehicle = {
       ...vehicle,
       taxes: {
         ...vehicle.taxes,
-        [payment.taxType]: updatedTax,
+        [payment.taxType]: updatedTaxInfo,
       },
       paymentHistory: [newLog, ...(vehicle.paymentHistory || [])],
       updatedAt: now,
     };
 
-    // Audit log for Compliance State Transition
+    // Audit log entry for PAYMENT / UPDATE
     const auditEntry: AuditLog = {
       id: generateUuid(),
-      entityName: 'vehicle_tax_compliances',
-      entityId: payment.vehicleId,
-      action: 'UPDATE',
-      previousValue: {
-        taxType: payment.taxType,
-        expiryDate: prevTax?.expiryDate,
-        lastPaidAmount: prevTax?.lastPaidAmount,
-        status: prevTax?.status || getComplianceStatus(prevTax, payment.taxType),
-      },
+      entityName: 'tax_payment_ledger',
+      entityId: paymentLogId,
+      action: 'INSERT',
+      previousValue: prevTaxInfo as unknown as Record<string, unknown>,
       newValue: {
-        taxType: payment.taxType,
-        expiryDate: payment.periodTo,
-        lastPaidAmount: payment.amount,
-        receiptNumber: payment.receiptChallanNo,
-        status: 'valid',
+        payment: newLog,
+        updatedTaxInfo,
       },
-      performedBy: get().managerConfig.managerName,
+      performedBy: get().managerConfig.managerName || 'manager',
       createdAt: now,
       updatedAt: now,
     };
@@ -362,45 +371,48 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     set({ vehicles: updatedVehicles, auditLogs: updatedAudit });
     localStorage.setItem(STORAGE_KEY_VEHICLES, JSON.stringify(updatedVehicles));
     localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(updatedAudit));
+
+    // Async sync with PostgreSQL
+    fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payment),
+    }).catch(() => {});
   },
 
-  // Update Tax Threshold Configurations (Post-Expiry & Grace Periods)
   updateTaxThreshold: (taxCode, updates) => {
     const now = new Date().toISOString();
-    const prevThreshold = get().taxThresholds.find(t => t.taxCode === taxCode);
-    if (!prevThreshold) return;
+    const prev = get().taxThresholds.find(t => t.taxCode === taxCode);
+    if (!prev) return;
 
-    const updatedThreshold: TaxThresholdConfig = {
-      ...prevThreshold,
-      ...updates,
-      updatedAt: now,
-    };
+    const updated = get().taxThresholds.map(t => {
+      if (t.taxCode === taxCode) {
+        return { ...t, ...updates, updatedAt: now };
+      }
+      return t;
+    });
 
     const auditEntry: AuditLog = {
       id: generateUuid(),
       entityName: 'tax_threshold_configs',
-      entityId: prevThreshold.id,
+      entityId: prev.id,
       action: 'UPDATE',
-      previousValue: prevThreshold as unknown as Record<string, unknown>,
-      newValue: updatedThreshold as unknown as Record<string, unknown>,
-      performedBy: get().managerConfig.managerName,
+      previousValue: prev as unknown as Record<string, unknown>,
+      newValue: updates as Record<string, unknown>,
+      performedBy: get().managerConfig.managerName || 'manager',
       createdAt: now,
       updatedAt: now,
     };
 
-    const updatedThresholds = get().taxThresholds.map(t => t.taxCode === taxCode ? updatedThreshold : t);
-    const updatedAudit = [auditEntry, ...get().auditLogs];
-
-    set({ taxThresholds: updatedThresholds, auditLogs: updatedAudit });
-    localStorage.setItem(STORAGE_KEY_THRESHOLDS, JSON.stringify(updatedThresholds));
-    localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(updatedAudit));
+    set({ taxThresholds: updated, auditLogs: [auditEntry, ...get().auditLogs] });
+    localStorage.setItem(STORAGE_KEY_THRESHOLDS, JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify([auditEntry, ...get().auditLogs]));
   },
 
-  // Record an autogenerated WhatsApp or SMS notification
-  logNotification: (log) => {
+  logNotification: (logData) => {
     const now = new Date().toISOString();
     const newEntry: NotificationLog = {
-      ...log,
+      ...logData,
       id: generateUuid(),
       createdAt: now,
       updatedAt: now,
@@ -416,14 +428,14 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(updatedConfig));
   },
 
-  resetToSampleFleet: () => {
+  clearAllData: () => {
     set({
-      vehicles: SAMPLE_VEHICLES,
-      taxThresholds: INITIAL_TAX_THRESHOLDS,
-      managerConfig: INITIAL_MANAGER_CONFIG,
+      vehicles: [],
+      auditLogs: [],
+      notificationLogs: [],
     });
     localStorage.removeItem(STORAGE_KEY_VEHICLES);
-    localStorage.removeItem(STORAGE_KEY_THRESHOLDS);
-    localStorage.removeItem(STORAGE_KEY_CONFIG);
+    localStorage.removeItem(STORAGE_KEY_AUDIT);
+    localStorage.removeItem(STORAGE_KEY_NOTIFS);
   },
 }));

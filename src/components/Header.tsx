@@ -33,11 +33,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenVahanAssistant,
   onOpenManagerAlerts,
 }) => {
-  const { resetToSampleFleet } = useVehicleStore();
+  const { clearAllData } = useVehicleStore();
 
-  const handleReset = () => {
-    if (confirm('Reset fleet to realistic sample Indian commercial fleet?')) {
-      resetToSampleFleet();
+  const handleClear = () => {
+    if (confirm('Clear all vehicles and local data?')) {
+      clearAllData();
     }
   };
 
@@ -117,11 +117,11 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Add Vehicle</span>
           </button>
 
-          {/* Reset Fleet */}
+          {/* Clear Data */}
           <button
-            onClick={handleReset}
-            className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition"
-            title="Reset to realistic sample fleet"
+            onClick={handleClear}
+            className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-800 transition"
+            title="Clear all fleet data"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>

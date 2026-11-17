@@ -35,12 +35,14 @@ interface VehicleListProps {
   onSelectVehicle: (vehicle: Vehicle) => void;
   onOpenRecordPayment: (vehicleId: string, taxType: TaxType) => void;
   onOpenVahanAssistant: (vehicleId: string) => void;
+  onOpenAddVehicle?: () => void;
 }
 
 export const VehicleList: React.FC<VehicleListProps> = ({
   onSelectVehicle,
   onOpenRecordPayment,
   onOpenVahanAssistant,
+  onOpenAddVehicle,
 }) => {
   const { vehicles, searchQuery, setSearchQuery, statusFilter, setStatusFilter, managerConfig } =
     useVehicleStore();
@@ -195,11 +197,23 @@ export const VehicleList: React.FC<VehicleListProps> = ({
       {/* Vehicles Grid / Cards */}
       {filteredVehicles.length === 0 ? (
         <div className="p-12 text-center bg-slate-900/60 rounded-2xl border border-slate-800">
-          <Truck className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="text-sm font-bold text-slate-300">No vehicles match your search or filter</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Try adjusting your search query or reset filter to &quot;All&quot;.
+          <Truck className="w-12 h-12 text-slate-600 mx-auto mb-3 opacity-60" />
+          <h3 className="text-base font-bold text-white">
+            {vehicles.length === 0 ? "No Vehicles in Fleet Yet" : "No vehicles match your search or filter"}
+          </h3>
+          <p className="text-xs text-slate-400 mt-1.5 max-w-md mx-auto">
+            {vehicles.length === 0
+              ? "Register your commercial trucks, trailers, or buses to monitor MV Road Tax, Green Tax, Commercial Insurance, and Parivahan renewals."
+              : "Try adjusting your search query or reset filter to \"All\"."}
           </p>
+          {vehicles.length === 0 && onOpenAddVehicle && (
+            <button
+              onClick={onOpenAddVehicle}
+              className="mt-4 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 transition shadow-lg shadow-amber-500/20"
+            >
+              <span>+ Add First Vehicle</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
